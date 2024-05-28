@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Visual Sitemap Crawler</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <h1>Visual Sitemap Crawler</h1>
+  <p>Please note that crawling occurs at most every 2 seconds to prevent being blocked by the server.</p>
+  <form id="crawlForm">
+    <div class="form-group initial-url">
+      <label for="url">Initial URL:</label>
+      <input type="text" id="url" name="url" required placeholder="https://example.com">
+      <div class="helper-text">
+        Enter the starting URL for the crawl (e.g., "https://example.com").
+      </div>
+    </div>
+    <div class="form-group depth-level">
+      <label for="depth">Depth Level:</label>
+      <input type="number" id="depth" name="depth" min="1" max="2" required value="1">
+      <div class="helper-text">
+        Enter the depth level to crawl (e.g., "1" or "2").
+      </div>
+    </div>
+    <div class="form-group main-menu-selector">
+      <label for="mainMenuSelector">Main Menu Site Navigation Selector:</label>
+      <input type="text" id="mainMenuSelector" name="mainMenuSelector" placeholder="nav">
+      <div class="helper-text">
+        Enter a CSS selector for the main menu navigation area (e.g., "nav", ".main-nav", "#main-nav").
+      </div>
+    </div>
+    <div class="form-group main-selector">
+      <label for="mainSelector">Main Content Selector:</label>
+      <input type="text" id="mainSelector" name="mainSelector" placeholder="main">
+      <div class="helper-text">
+        Enter a CSS selector for the main content area (e.g., "main", ".main-content", "#main").
+      </div>
+    </div>
+    <div class="form-group header-selector">
+      <label for="headerSelector">Header Selector:</label>
+      <input type="text" id="headerSelector" name="headerSelector" placeholder="header">
+      <div class="helper-text">
+        Enter a CSS selector for the header area (e.g., "header", ".site-header", "#header").
+      </div>
+    </div>
+    <div class="form-group footer-selector">
+      <label for="footerSelector">Footer Selector:</label>
+      <input type="text" id="footerSelector" name="footerSelector" placeholder="footer">
+      <div class="helper-text">
+        Enter a CSS selector for the footer area (e.g., "footer", ".site-footer", "#footer").
+      </div>
+    </div>
+    <div class="form-group other-content-selector">
+      <label for="otherContentSelector">Other Content Selector:</label>
+      <input type="text" id="otherContentSelector" name="otherContentSelector">
+      <div class="helper-text">
+        Enter a CSS selector for other content areas (e.g., "section", ".content", "#content").
+      </div>
+    </div>
+    <button type="submit">Start Crawl</button>
+  </form>
+
+  <div id="message"></div>
+  <div id="treeMapContainer">
+    <h2>Tree Map of Crawled Data</h2>
+    <div id="treeMap"></div>
+  </div>
+
+  <script>
+    document.getElementById('crawlForm').addEventListener('submit', async function (event) {
+      event.preventDefault();
+      const formData = new FormData(event.target);
+      const data = Object.fromEntries(formData.entries());
+
+      if (!data.mainSelector && !data.headerSelector && !data.footerSelector && !data.otherContentSelector && !data.mainMenuSelector) {
+        document.getElementById('message').textContent = 'Please provide at least one CSS selector.';
+        return;
+      }
+
+      document.getElementById('message').textContent = 'Crawling...';
+
+      const response = await fetch('/start-crawl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        document.getElementById('message').textContent = 'Crawl completed successfully. Data saved to output.json.';
+
+        // Wait a moment to ensure the file is written
+        setTimeout(() => {
+          fetch('output.json')
+            .then(response => {
+              if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+              }
+              return response.json();
+            })
+            .then(data => {
+              renderTreeMap(data, document.getElementById('treeMap'));
+            })
+            .catch(error => {
+              document.getElementById('message').textContent = `Error fetching output.json: ${error.message}`;
+            });
+        }, 1000); // 1 second delay to ensure the file is written
+      } else {
+        document.getElementById('message').textContent = `Error: ${result.message}`;
+      }
+    });
+
+    function renderTreeMap(data, container) {
+      container.innerHTML = '';
+      const ul = document.createElement('ul');
+      container.appendChild(ul);
+      renderNode(data, ul);
+    }
+
+    function renderNode(node, container) {
+      if (!node) return; // Check for null or undefined nodes
+
+      const li = document.createElement('li');
+      const title = node.title ? node.title : node.url;
+      li.innerHTML = title;
+
+      if (node.url && (node.url.includes('mailto:') || node.url.includes('tel:') || !node.url.includes('danpoynor.com'))) {
+        li.classList.add('stub-link');
+      }
+
+      if (node.url) {
+        const urlLink = document.createElement('a');
+        urlLink.href = node.url;
+        urlLink.textContent = node.url;
+        urlLink.style.display = 'block';
+        urlLink.style.fontSize = '0.875rem';
+        urlLink.style.color = 'gray';
+        li.appendChild(urlLink);
+      }
+
+      container.appendChild(li);
+
+      if (node.children && node.children.length > 0) {
+        const categories = {};
+
+        node.children.forEach(child => {
+          if (child.category) {
+            if (!categories[child.category]) {
+              categories[child.category] = [];
+            }
+            categories[child.category].push(child);
+          } else {
+            renderNode(child, li);
+          }
+        });
+
+        Object.keys(categories).forEach(category => {
+          const categoryUl = document.createElement('ul');
+          li.appendChild(categoryUl);
+
+          const categoryLi = document.createElement('li');
+          categoryLi.textContent = category;
+          categoryLi.classList.add('link-collection-selector-name');
+          categoryUl.appendChild(categoryLi);
+
+          const ul = document.createElement('ul');
+          categoryLi.appendChild(ul);
+
+          categories[category].forEach(child => renderNode(child, ul));
+        });
+      }
+    }
+  </script>
+</body>
+
+</html>
